@@ -131,7 +131,7 @@ function App() {
             </h1>
 
             <p className="welcome-description">
-              Build skills. Solve real problems. Be part of a growing
+             Learn. Build skills. Solve real problems. Be part of a growing
               community of technology innovators.
             </p>
 
@@ -231,7 +231,7 @@ function App() {
               </p>
             </div>
             <p className="text-sm font-medium text-orange-200">
-              STUDENT APPLICATION · 2026
+              PARTICIPANT APPLICATION · 2026
             </p>
             <h2 className="mt-2 text-2xl font-bold">
               Let's get to know you
