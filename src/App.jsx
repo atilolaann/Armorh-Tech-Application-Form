@@ -1,5 +1,5 @@
 import icon from './assets/icon.jpeg'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
 const tracks = [
@@ -30,7 +30,8 @@ const questions = [
     { name: 'age', label: 'Age Range', type: 'select', options: ['Under 18', '18–25', '26–40'] },
     { name: 'state', label: 'State of Residence', type: 'select', options: states },
     { name: 'status', label: 'Current Status', type: 'select', options: ['Undergraduate', 'Recent Graduate', 'NYSC Corps Member', 'Other'] },
-    { name: 'institution', label: 'Institution and Course of Study', type: 'text' },
+    { name: 'institution', label: 'Institution', type: 'text' },
+    { name: 'department', label: 'Department / Course of Study', type: 'text' },
   ],
   [
     { name: 'track', label: 'Which track would you like to join?', type: 'select', options: tracks },
@@ -61,23 +62,132 @@ const titles = [
 ]
 
 const SHEET_URL = 'https://script.google.com/macros/s/AKfycbwZJJsIptjrQCP1PK-BleTrhKPZ2BEpMhSrWyWWSfUCTUbRBQDSPiSwIIXHcLQuhYhG9g/exec'
+const DRAFT_KEY = 'armorh-tech-registration-draft'
+
+const loadDraft = () => {
+  try {
+    return JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function CustomSelect({ id, options, value, onChange, invalid }) {
+  const [open, setOpen] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(Math.max(0, options.indexOf(value)))
+  const selectRef = useRef(null)
+  const selectedIndex = options.indexOf(value)
+
+  useEffect(() => {
+    if (!open) return undefined
+    const closeOnOutsideClick = (event) => {
+      if (!selectRef.current?.contains(event.target)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    return () => document.removeEventListener('pointerdown', closeOnOutsideClick)
+  }, [open])
+
+  const handleKeyDown = (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      if (!open) {
+        setActiveIndex(selectedIndex >= 0 ? selectedIndex : 0)
+        setOpen(true)
+      } else {
+        setActiveIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length)
+      }
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      if (open) {
+        onChange(options[activeIndex])
+        setOpen(false)
+      } else {
+        setActiveIndex(selectedIndex >= 0 ? selectedIndex : 0)
+        setOpen(true)
+      }
+    } else if (event.key === 'Escape' && open) {
+      event.preventDefault()
+      setOpen(false)
+    } else if (event.key === 'Tab') {
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div ref={selectRef} className="custom-select">
+      <button
+        id={id}
+        type="button"
+        className={`form-field custom-select-trigger ${invalid ? 'form-field-invalid' : ''} ${open ? 'is-open' : ''}`}
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={`${id}-options`}
+        aria-activedescendant={open ? `${id}-option-${activeIndex}` : undefined}
+        aria-invalid={invalid}
+        onClick={() => {
+          setActiveIndex(selectedIndex >= 0 ? selectedIndex : 0)
+          setOpen(current => !current)
+        }}
+        onKeyDown={handleKeyDown}
+      >
+        <span className={value ? '' : 'custom-select-placeholder'}>{value || 'Select an option'}</span>
+        <span className="custom-select-chevron" aria-hidden="true" />
+      </button>
+      {open && (
+        <div id={`${id}-options`} role="listbox" aria-labelledby={id} className="custom-select-menu">
+          {options.map((option, index) => (
+            <div
+              id={`${id}-option-${index}`}
+              key={option}
+              role="option"
+              aria-selected={option === value}
+              className={`custom-select-option ${index === activeIndex ? 'is-active' : ''} ${option === value ? 'is-selected' : ''}`}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => {
+                onChange(option)
+                setOpen(false)
+              }}
+            >
+              {option}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function App() {
   const [started, setStarted] = useState(false)
-  const [step, setStep] = useState(0)
-  const [form, setForm] = useState({})
+  const [step, setStep] = useState(() => Math.min(Number(loadDraft().step) || 0, questions.length - 1))
+  const [form, setForm] = useState(() => loadDraft().form || {})
+  const [invalidFields, setInvalidFields] = useState([])
+  const [toast, setToast] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState(false)
 
+  useEffect(() => {
+    if (!submitted) localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, step }))
+  }, [form, step, submitted])
+
+  useEffect(() => {
+    if (!toast) return undefined
+    const timer = window.setTimeout(() => setToast(''), 3500)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+
   const update = (name, value) => {
-    setForm({ ...form, [name]: value })
+    setForm(current => ({ ...current, [name]: value }))
+    setInvalidFields(current => current.filter(field => field !== name))
   }
 
   const next = () => {
-    const unanswered = questions[step].find(q => !form[q.name]?.trim())
-    if (unanswered) {
-      alert(`Please complete: ${unanswered.label}`)
+    const unanswered = questions[step].filter(q => !form[q.name]?.trim())
+    if (unanswered.length) {
+      setInvalidFields(unanswered.map(q => q.name))
+      setToast(`Please complete the highlighted ${unanswered.length === 1 ? 'field' : 'fields'} before continuing.`)
       return
     }
     setStep(step + 1)
@@ -87,9 +197,10 @@ function App() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    const unanswered = questions[step].find(q => !form[q.name]?.trim())
-    if (unanswered) {
-      alert(`Please complete: ${unanswered.label}`)
+    const unanswered = questions[step].filter(q => !form[q.name]?.trim())
+    if (unanswered.length) {
+      setInvalidFields(unanswered.map(q => q.name))
+      setToast(`Please complete the highlighted ${unanswered.length === 1 ? 'field' : 'fields'} before submitting.`)
       return
     }
     setSubmitting(true)
@@ -100,6 +211,7 @@ function App() {
         mode: 'no-cors',
         body: JSON.stringify(form),
       })
+      localStorage.removeItem(DRAFT_KEY)
       setSubmitted(true)
       window.scrollTo(0, 0)
     } catch {
@@ -267,39 +379,39 @@ function App() {
             <div className="space-y-6">
               {questions[step].map((q) => (
                 <div key={q.name}>
-                  <label className="mb-2 block text-sm font-semibold text-gray-700">
+                  <label htmlFor={q.name} className="mb-2 block text-sm font-semibold text-gray-700">
                     {q.label} <span className="text-[#F28C5B]">*</span>
                   </label>
 
                   {q.type === 'textarea' ? (
                     <textarea
                       required
+                      id={q.name}
                       rows={4}
                       value={form[q.name] || ''}
+                      aria-invalid={invalidFields.includes(q.name)}
                       onChange={e => update(q.name, e.target.value)}
                       placeholder="Type your answer here..."
-                      className="form-field"
+                      className={`form-field ${invalidFields.includes(q.name) ? 'form-field-invalid' : ''}`}
                     />
                   ) : q.type === 'select' ? (
-                    <select
-                      required
+                    <CustomSelect
+                      id={q.name}
+                      options={q.options}
                       value={form[q.name] || ''}
-                      onChange={e => update(q.name, e.target.value)}
-                      className="form-field"
-                    >
-                      <option value="">Select an option</option>
-                      {q.options.map(option => (
-                        <option key={option} value={option}>{option}</option>
-                      ))}
-                    </select>
+                      invalid={invalidFields.includes(q.name)}
+                      onChange={value => update(q.name, value)}
+                    />
                   ) : (
                     <input
                       required
+                      id={q.name}
                       type={q.type}
                       value={form[q.name] || ''}
+                      aria-invalid={invalidFields.includes(q.name)}
                       onChange={e => update(q.name, e.target.value)}
                       placeholder="Enter your answer"
-                      className="form-field"
+                      className={`form-field ${invalidFields.includes(q.name) ? 'form-field-invalid' : ''}`}
                     />
                   )}
                 </div>
@@ -311,6 +423,8 @@ function App() {
                 Something went wrong. Please check your internet and try again.
               </p>
             )}
+
+            {toast && <div className="form-toast" role="alert">{toast}</div>}
 
             <div className="mt-10 flex items-center justify-between gap-4">
               <button
@@ -326,7 +440,7 @@ function App() {
                 <button
                   type="button"
                   onClick={next}
-                  className="rounded-xl bg-[#102B46] px-8 py-3 text-sm font-semibold text-white transition hover:bg-[#0F766E]"
+                  className="rounded-xl bg-[#F28C5B] px-8 py-3 text-sm font-semibold text-[#102B46] transition hover:bg-[#E87543]"
                 >
                   Next Step →
                 </button>
